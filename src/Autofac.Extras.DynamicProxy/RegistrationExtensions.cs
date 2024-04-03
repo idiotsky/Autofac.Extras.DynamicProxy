@@ -1,8 +1,6 @@
 // Copyright (c) Autofac Project. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
-using System.Globalization;
-using System.Reflection;
 using Autofac.Builder;
 using Autofac.Core;
 using Autofac.Core.Resolving.Pipeline;
@@ -16,14 +14,6 @@ namespace Autofac.Extras.DynamicProxy;
 /// </summary>
 public static class RegistrationExtensions
 {
-    private const string InterceptorsPropertyName = "Autofac.Extras.DynamicProxy.RegistrationExtensions.InterceptorsPropertyName";
-
-    private const string AttributeInterceptorsPropertyName = "Autofac.Extras.DynamicProxy.RegistrationExtensions.AttributeInterceptorsPropertyName";
-
-    private static readonly IEnumerable<Service> EmptyServices = Enumerable.Empty<Service>();
-
-    private static readonly ProxyGenerator ProxyGenerator = new();
-
     /// <summary>
     /// Enable class interception on the target type. Interceptors will be determined
     /// via Intercept attributes on the class or added with InterceptedBy().
@@ -105,13 +95,13 @@ public static class RegistrationExtensions
         }
 
         registration.ActivatorData.ImplementationType =
-            ProxyGenerator.ProxyBuilder.CreateClassProxyType(
+            ProxyHelpers.ProxyGenerator.ProxyBuilder.CreateClassProxyType(
                 registration.ActivatorData.ImplementationType,
                 additionalInterfaces ?? Type.EmptyTypes,
                 options);
 
-        var interceptorServices = GetInterceptorServicesFromAttributes(registration.ActivatorData.ImplementationType);
-        AddInterceptorServicesToMetadata(registration, interceptorServices, AttributeInterceptorsPropertyName);
+        var interceptorServices = ProxyHelpers.GetInterceptorServicesFromAttributes(registration.ActivatorData.ImplementationType);
+        AddInterceptorServicesToMetadata(registration, interceptorServices, ProxyHelpers.AttributeInterceptorsPropertyName);
 
         registration.OnPreparing(e =>
         {
@@ -126,7 +116,7 @@ public static class RegistrationExtensions
                 }
             }
 
-            proxyParameters.Add(new PositionalParameter(index++, GetInterceptorServices(e.Component, registration.ActivatorData.ImplementationType)
+            proxyParameters.Add(new PositionalParameter(index++, ProxyHelpers.GetInterceptorServices(e.Component, registration.ActivatorData.ImplementationType)
                 .Select(s => e.Context.ResolveService(s))
                 .Cast<IInterceptor>()
                 .ToArray()));
@@ -164,31 +154,7 @@ public static class RegistrationExtensions
         {
             next(ctx);
 
-            EnsureInterfaceInterceptionApplies(ctx.Registration);
-
-            // The instance won't ever _practically_ be null by the time it gets here.
-            var proxiedInterfaces = ctx.Instance!
-                .GetType()
-                .GetInterfaces()
-                .Where(ProxyUtil.IsAccessible)
-                .ToArray();
-
-            if (!proxiedInterfaces.Any())
-            {
-                return;
-            }
-
-            var theInterface = proxiedInterfaces.First();
-            var interfaces = proxiedInterfaces.Skip(1).ToArray();
-
-            var interceptors = GetInterceptorServices(ctx.Registration, ctx.Instance.GetType())
-                .Select(s => ctx.ResolveService(s))
-                .Cast<IInterceptor>()
-                .ToArray();
-
-            ctx.Instance = options == null
-                ? ProxyGenerator.CreateInterfaceProxyWithTarget(theInterface, interfaces, ctx.Instance, interceptors)
-                : ProxyGenerator.CreateInterfaceProxyWithTarget(theInterface, interfaces, ctx.Instance, options, interceptors);
+            ProxyHelpers.ApplyProxy(ctx, options);
         }));
 
         return registration;
@@ -218,7 +184,7 @@ public static class RegistrationExtensions
             throw new ArgumentNullException(nameof(interceptorServices));
         }
 
-        AddInterceptorServicesToMetadata(builder, interceptorServices, InterceptorsPropertyName);
+        AddInterceptorServicesToMetadata(builder, interceptorServices, ProxyHelpers.InterceptorsPropertyName);
 
         return builder;
     }
@@ -267,21 +233,6 @@ public static class RegistrationExtensions
         return InterceptedBy(builder, interceptorServiceTypes.Select(t => new TypedService(t)).ToArray());
     }
 
-    private static void EnsureInterfaceInterceptionApplies(IComponentRegistration componentRegistration)
-    {
-        if (componentRegistration.Services
-            .OfType<IServiceWithType>()
-            .Select(s => new Tuple<Type, TypeInfo>(s.ServiceType, s.ServiceType.GetTypeInfo()))
-            .Any(s => !s.Item2.IsInterface || !ProxyUtil.IsAccessible(s.Item1)))
-        {
-            throw new InvalidOperationException(
-                string.Format(
-                    CultureInfo.CurrentCulture,
-                    RegistrationExtensionsResources.InterfaceProxyingOnlySupportsInterfaceServices,
-                    componentRegistration));
-        }
-    }
-
     private static void AddInterceptorServicesToMetadata<TLimit, TActivatorData, TStyle>(
         IRegistrationBuilder<TLimit, TActivatorData, TStyle> builder,
         IEnumerable<Service> interceptorServices,
@@ -296,41 +247,5 @@ public static class RegistrationExtensions
         {
             builder.RegistrationData.Metadata.Add(metadataKey, interceptorServices);
         }
-    }
-
-    private static IEnumerable<Service> GetInterceptorServices(IComponentRegistration registration, Type implType)
-    {
-        var result = EmptyServices;
-
-        if (registration.Metadata.TryGetValue(InterceptorsPropertyName, out object? services) && services is IEnumerable<Service> existingPropertyServices)
-        {
-            result = result.Concat(existingPropertyServices);
-        }
-
-        return (registration.Metadata.TryGetValue(AttributeInterceptorsPropertyName, out services) && services is IEnumerable<Service> existingAttributeServices)
-            ? result.Concat(existingAttributeServices)
-            : result.Concat(GetInterceptorServicesFromAttributes(implType));
-    }
-
-    private static IEnumerable<Service> GetInterceptorServicesFromAttributes(Type implType)
-    {
-        var implTypeInfo = implType.GetTypeInfo();
-        if (!implTypeInfo.IsClass)
-        {
-            return Enumerable.Empty<Service>();
-        }
-
-        var classAttributeServices = implTypeInfo
-            .GetCustomAttributes(typeof(InterceptAttribute), true)
-            .Cast<InterceptAttribute>()
-            .Select(att => att.InterceptorService);
-
-        var interfaceAttributeServices = implType
-            .GetInterfaces()
-            .SelectMany(i => i.GetTypeInfo().GetCustomAttributes(typeof(InterceptAttribute), true))
-            .Cast<InterceptAttribute>()
-            .Select(att => att.InterceptorService);
-
-        return classAttributeServices.Concat(interfaceAttributeServices);
     }
 }
