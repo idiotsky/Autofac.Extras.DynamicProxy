@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using Castle.DynamicProxy;
-using Moq;
+using NSubstitute;
 using IInvocation = Castle.DynamicProxy.IInvocation;
 
 namespace Autofac.Extras.DynamicProxy.Test;
@@ -20,41 +20,38 @@ public class ServiceMiddlewareInterfaceInterceptorsFixture
     }
 
     [Fact]
-    public void InterceptsPublicInterfacesUseGenericMethod()
+    public void InterceptsPublicInterfacesUseGenericMethod1()
     {
-        Mock<IDecoratorInterface> mockDecorator = new();
+        IDecoratorInterface mockDecorator = Substitute.For<IDecoratorInterface>();
         ContainerBuilder builder = new();
+
         builder.RegisterType<StringMethodInterceptor>();
         builder.RegisterDecorator<Decorator, IPublicInterface>();
-        builder.RegisterInstance(mockDecorator.Object);
-        builder
-            .RegisterType<Interceptable>()
-            .InterceptedBy(typeof(StringMethodInterceptor))
-            .As<IPublicInterface>();
+        builder.RegisterInstance(mockDecorator);
+        builder.RegisterType<Interceptable>().InterceptedBy(typeof(StringMethodInterceptor)).As<IPublicInterface>();
         builder.EnableInterfaceInterceptors<IPublicInterface>();
+
         IContainer container = builder.Build();
         IPublicInterface obj = container.Resolve<IPublicInterface>();
+
         Assert.Equal("intercepted-PublicMethod", obj.PublicMethod());
-        mockDecorator.Verify(e => e.Decorate(), Times.Never);
+        mockDecorator.DidNotReceive().Decorate();
     }
 
     [Fact]
     public void InterceptsPublicInterfacesUseNoneGenericMethod()
     {
-        Mock<IDecoratorInterface> mockDecorator = new();
+        IDecoratorInterface mockDecorator = Substitute.For<IDecoratorInterface>();
         ContainerBuilder builder = new();
         builder.RegisterType<StringMethodInterceptor>();
         builder.RegisterDecorator<Decorator, IPublicInterface>();
-        builder.RegisterInstance(mockDecorator.Object);
-        builder
-            .RegisterType<Interceptable>()
-            .InterceptedBy(typeof(StringMethodInterceptor))
-            .As<IPublicInterface>();
+        builder.RegisterInstance(mockDecorator);
+        builder.RegisterType<Interceptable>().InterceptedBy(typeof(StringMethodInterceptor)).As<IPublicInterface>();
         builder.EnableInterfaceInterceptors(typeof(IPublicInterface));
         IContainer container = builder.Build();
         IPublicInterface obj = container.Resolve<IPublicInterface>();
         Assert.Equal("intercepted-PublicMethod", obj.PublicMethod());
-        mockDecorator.Verify(e => e.Decorate(), Times.Never);
+        mockDecorator.DidNotReceive().Decorate();
     }
 
     public class Decorator : IPublicInterface
