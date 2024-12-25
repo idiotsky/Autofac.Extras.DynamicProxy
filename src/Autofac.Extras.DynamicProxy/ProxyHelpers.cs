@@ -12,7 +12,7 @@ namespace Autofac.Extras.DynamicProxy;
 /// <summary>
 /// A helper class for proxy operations in an Autofac Interceptors context.
 /// </summary>
-public static class ProxyHelpers
+internal static class ProxyHelpers
 {
     /// <summary>
     /// The property name for the interceptors in Autofac registration extensions.
@@ -67,7 +67,7 @@ public static class ProxyHelpers
         var interfaces = proxiedInterfaces.Skip(1).ToArray();
 
         var interceptors = GetInterceptorServices(ctx.Registration, ctx.Instance.GetType())
-            .Select(s => ctx.ResolveService(s))
+            .Select(ctx.ResolveService)
             .Cast<IInterceptor>()
             .ToArray();
 
@@ -80,7 +80,7 @@ public static class ProxyHelpers
     /// Checks if the component registration can be used with interface proxying.
     /// </summary>
     /// <param name="componentRegistration">The component registration to check.</param>
-    /// <exception cref="InvalidOperationException">Thrown if interface proxying is attemped on a type that is not an interface or is not accessible.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if interface proxying is attempted on a type that is not an interface or is not accessible.</exception>
     internal static void EnsureInterfaceInterceptionApplies(IComponentRegistration componentRegistration)
     {
         if (componentRegistration.Services
@@ -111,7 +111,7 @@ public static class ProxyHelpers
             result = result.Concat(existingPropertyServices);
         }
 
-        return (registration.Metadata.TryGetValue(AttributeInterceptorsPropertyName, out services) && services is IEnumerable<Service> existingAttributeServices)
+        return registration.Metadata.TryGetValue(AttributeInterceptorsPropertyName, out services) && services is IEnumerable<Service> existingAttributeServices
             ? result.Concat(existingAttributeServices)
             : result.Concat(GetInterceptorServicesFromAttributes(implType));
     }
@@ -124,10 +124,6 @@ public static class ProxyHelpers
     internal static IEnumerable<Service> GetInterceptorServicesFromAttributes(Type implType)
     {
         var implTypeInfo = implType.GetTypeInfo();
-        if (!implTypeInfo.IsClass)
-        {
-            return Enumerable.Empty<Service>();
-        }
 
         var classAttributeServices = implTypeInfo
             .GetCustomAttributes(typeof(InterceptAttribute), true)
